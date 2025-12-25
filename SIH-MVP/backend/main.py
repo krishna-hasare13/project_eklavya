@@ -214,18 +214,34 @@ def home():
 @app.route("/api/register", methods=['POST'])
 def register():
     data = request.json
+    
+    # 1. Check Missing Fields
+    if not data.get('username') or not data.get('password') or not data.get('role'):
+        return jsonify({'message': 'Missing fields'}), 400
+    
+    # 2. Check Mobile Number
+    mobile = data.get('mobile_number')
+    if not mobile:
+        return jsonify({'message': 'Mobile number required.'}), 400
+
+    # 3. Validate Password
     err = validate_password(data.get('password'))
     if err: return jsonify({'message': err}), 400
+
+    # --- NEW: Admin ID Check ---
+    if data.get('role') == 'admin' and not data.get('username').startswith('A'):
+        return jsonify({'message': "Admin ID must start with 'A' (e.g. A101)."}), 400
+    # ---------------------------
 
     conn = get_db_connection()
     try:
         pw_hash = generate_password_hash(data.get('password'))
-        conn.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", 
-                     (data.get('username'), pw_hash, data.get('role')))
+        conn.execute("INSERT INTO users (username, password, role, mobile_number) VALUES (?, ?, ?, ?)", 
+                     (data.get('username'), pw_hash, data.get('role'), mobile))
         conn.commit()
-        return jsonify({'message': 'Registered successfully!'}), 201
+        return jsonify({'message': 'Registered!'}), 201
     except sqlite3.IntegrityError:
-        return jsonify({'message': 'Username taken.'}), 409
+        return jsonify({'message': 'Username taken'}), 409
     finally:
         conn.close()
 
@@ -238,6 +254,24 @@ def login():
 
     if user and check_password_hash(user['password'], data.get('password')):
         return jsonify({'message': 'Login successful', 'role': user['role'], 'username': user['username']}), 200
+    return jsonify({'message': 'Invalid credentials'}), 401
+
+@app.route("/api/student-login", methods=['POST'])
+def student_login():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+
+    conn = get_db_connection()
+    user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    conn.close()
+
+    if user and check_password_hash(user['password'], password):
+        if user['role'] == 'student':
+            return jsonify({'message': 'Login successful', 'role': 'student', 'username': username}), 200
+        else:
+            return jsonify({'message': 'Unauthorized. This portal is for students only.'}), 403
+            
     return jsonify({'message': 'Invalid credentials'}), 401
 
 @app.route("/api/students", methods=["GET"])

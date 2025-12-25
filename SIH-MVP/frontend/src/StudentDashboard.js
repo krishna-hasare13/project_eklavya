@@ -17,19 +17,20 @@ const LogoutIcon = () => (
 );
 
 function StudentDashboard() {
-    const { isLoggedIn, username, logout } = useContext(AuthContext);
+    const { username, logout } = useContext(AuthContext);
     const [studentData, setStudentData] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState(null);
+    
+    // UI State for Scheduling
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const [isScheduled, setIsScheduled] = useState(false);
     const [scheduleDate, setScheduleDate] = useState("");
     const [scheduleTime, setScheduleTime] = useState("");
     const [expandedEventId, setExpandedEventId] = useState(null);
-
     const [events, setEvents] = useState([
         { id: 1, title: "Mentor Session - Database Systems", date: "25 Sep 2025" },
         { id: 2, title: "Career Guidance Meeting", date: "30 Sep 2025" },
-        { id: 3, title: "Workshop on Advanced Algorithms", date: "15 Oct 2025" },
     ]);
 
     const navigate = useNavigate();
@@ -40,116 +41,89 @@ function StudentDashboard() {
         navigate("/student-login");
     };
 
+    // --- Data Fetching Logic (Targeted by PRN) ---
     useEffect(() => {
         const storedUsername = localStorage.getItem("studentUsername");
+        
         if (!storedUsername) {
             navigate("/student-login");
             return;
         }
 
-        const fetchStudentData = async () => {
+        const fetchSpecificStudent = async () => {
             setIsLoading(true);
             try {
-                // Fetch all students from backend API (or change to `/api/students/:id` if available)
-                const response = await fetch("http://127.0.0.1:5000/api/students");
-                if (!response.ok) throw new Error("Failed to fetch students");
-                const students = await response.json();
-
-                // Find student by username (assuming student_id === username)
-                const student = Array.isArray(students)
-                    ? students.find((s) => String(s.student_id) === String(storedUsername))
-                    : students && (String(students.student_id) === String(storedUsername) ? students : null);
-
-                if (student) {
-                    // Parse numeric values safely and provide sensible defaults
-                    const safeNum = (v, d = 0) => {
-                        const n = Number(v);
-                        return Number.isFinite(n) ? n : d;
-                    };
-
-                    // Map expected backend field names to the UI fields.
-                    // Adjust the property names below to match your API/CSV keys.
-                    setStudentData({
-                        name: student.name || storedUsername,
-                        prn: student.prn || student.PRN || "N/A",
-                        // Attendance per semester (expected fields: sem1_att, sem2_att, ... or att_sem1 etc.)
-                        sem1_att: safeNum(student.sem1_att, safeNum(student.att_sem1)),
-                        sem2_att: safeNum(student.sem2_att, safeNum(student.att_sem2)),
-                        sem3_att: safeNum(student.sem3_att, safeNum(student.att_sem3)),
-                        sem4_att: safeNum(student.sem4_att, safeNum(student.att_sem4)),
-                        sem5_att: safeNum(student.sem5_att, safeNum(student.att_sem5)),
-                        sem6_att: safeNum(student.sem6_att, safeNum(student.att_sem6, student.attendance_percentage)),
-                        // CGPA per semester (0..10)
-                        sem1_cgpa: safeNum(student.sem1_cgpa),
-                        sem2_cgpa: safeNum(student.sem2_cgpa),
-                        sem3_cgpa: safeNum(student.sem3_cgpa),
-                        sem4_cgpa: safeNum(student.sem4_cgpa),
-                        sem5_cgpa: safeNum(student.sem5_cgpa),
-                        sem6_cgpa: safeNum(student.sem6_cgpa),
-                        // other summary fields
-                        credits: safeNum(student.credits, 0),
-                        sem6_cgpa_overall: safeNum(student.sem6_cgpa, 0),
-                        avgMarks: safeNum(student.test_score, safeNum(student.avgMarks, 0)),
-                        wellbeing: safeNum(student.wellbeing, 75), // fallback to 75
-                    });
-                } else {
-                    setStudentData(null);
+                // Fetch ONLY the specific student using the stored PRN
+                const response = await fetch(`http://127.0.0.1:5000/api/student/${storedUsername}`);
+                
+                if (!response.ok) {
+                    throw new Error("Student record not found in database.");
                 }
+
+                const data = await response.json();
+                const info = data.info; // The 'info' object from backend
+
+                // Helper to safely parse numbers
+                const safeNum = (v, d = 0) => {
+                    const n = Number(v);
+                    return Number.isFinite(n) ? n : d;
+                };
+
+                // Map Backend Fields to UI State
+                setStudentData({
+                    name: info.name || storedUsername,
+                    prn: info.student_id, // This is the PRN
+                    
+                    // Current Status
+                    current_att: safeNum(info.attendance_percentage),
+                    current_cgpa: safeNum(info.sem6_cgpa),
+                    credits: safeNum(info.credits, 20),
+                    wellbeing: safeNum(info.wellbeing, 75),
+                    risk_level: info.risk_level || "Low",
+
+                    // Semester Attendance History
+                    sem1_att: safeNum(info.sem1_att),
+                    sem2_att: safeNum(info.sem2_att),
+                    sem3_att: safeNum(info.sem3_att),
+                    sem4_att: safeNum(info.sem4_att),
+                    sem5_att: safeNum(info.sem5_att),
+                    sem6_att: safeNum(info.sem6_att),
+
+                    // Semester CGPA History
+                    sem1_cgpa: safeNum(info.sem1_cgpa),
+                    sem2_cgpa: safeNum(info.sem2_cgpa),
+                    sem3_cgpa: safeNum(info.sem3_cgpa),
+                    sem4_cgpa: safeNum(info.sem4_cgpa),
+                    sem5_cgpa: safeNum(info.sem5_cgpa),
+                    sem6_cgpa: safeNum(info.sem6_cgpa),
+                });
+
             } catch (err) {
-                console.error("fetchStudentData:", err);
-                setStudentData(null);
+                console.error("Error fetching data:", err);
+                setError(err.message);
             } finally {
                 setIsLoading(false);
             }
         };
 
-        fetchStudentData();
+        fetchSpecificStudent();
     }, [navigate]);
 
-    const attendance = studentData
-        ? [
-              studentData.sem1_att,
-              studentData.sem2_att,
-              studentData.sem3_att,
-              studentData.sem4_att,
-              studentData.sem5_att,
-              studentData.sem6_att,
-          ]
-        : [];
-    const cgpa = studentData
-        ? [
-              studentData.sem1_cgpa,
-              studentData.sem2_cgpa,
-              studentData.sem3_cgpa,
-              studentData.sem4_cgpa,
-              studentData.sem5_cgpa,
-              studentData.sem6_cgpa,
-          ]
-        : [];
-
+    // --- Chart Data Configuration ---
     const chartLabels = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"];
-    const commonOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-            y: {
-                grid: { color: "rgba(0, 0, 0, 0.05)" },
-                ticks: { color: "#374151" },
-            },
-            x: { grid: { display: false }, ticks: { color: "#374151" } },
-        },
-    };
-
+    
     const attendanceData = {
         labels: chartLabels,
         datasets: [
             {
                 label: "Attendance %",
-                data: attendance,
-                backgroundColor: "rgba(14, 165, 233, 0.8)",
+                data: studentData ? [
+                    studentData.sem1_att, studentData.sem2_att, studentData.sem3_att, 
+                    studentData.sem4_att, studentData.sem5_att, studentData.sem6_att
+                ] : [],
+                backgroundColor: "rgba(14, 165, 233, 0.8)", // Sky Blue
                 borderColor: "rgba(14, 165, 233, 1)",
-                borderRadius: 5,
+                borderRadius: 6,
                 borderWidth: 1,
             },
         ],
@@ -160,27 +134,51 @@ function StudentDashboard() {
         datasets: [
             {
                 label: "CGPA",
-                data: cgpa,
+                data: studentData ? [
+                    studentData.sem1_cgpa, studentData.sem2_cgpa, studentData.sem3_cgpa, 
+                    studentData.sem4_cgpa, studentData.sem5_cgpa, studentData.sem6_cgpa
+                ] : [],
                 fill: true,
-                borderColor: "rgba(16, 185, 129, 1)",
+                borderColor: "rgba(16, 185, 129, 1)", // Emerald
                 backgroundColor: (context) => {
-                    const { ctx, chartArea } = context.chart;
-                    if (!chartArea) return null;
-                    const gradient = ctx.createLinearGradient(
-                        0,
-                        chartArea.bottom,
-                        0,
-                        chartArea.top
-                    );
-                    gradient.addColorStop(0, "rgba(16, 185, 129, 0)");
-                    gradient.addColorStop(1, "rgba(16, 185, 129, 0.4)");
+                    const ctx = context.chart.ctx;
+                    const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+                    gradient.addColorStop(0, "rgba(16, 185, 129, 0.4)");
+                    gradient.addColorStop(1, "rgba(16, 185, 129, 0.0)");
                     return gradient;
                 },
-                pointBackgroundColor: "rgba(16, 185, 129, 1)",
-                pointBorderColor: "#fff",
                 tension: 0.4,
+                pointBackgroundColor: "#fff",
+                pointBorderColor: "rgba(16, 185, 129, 1)",
+                pointRadius: 4,
             },
         ],
+    };
+
+    const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            y: { 
+                beginAtZero: true, 
+                max: 100,
+                grid: { color: "rgba(0, 0, 0, 0.05)" },
+                ticks: { font: { family: 'Inter' } }
+            },
+            x: { 
+                grid: { display: false },
+                ticks: { font: { family: 'Inter' } }
+            },
+        },
+    };
+
+    const cgpaOptions = {
+        ...commonOptions,
+        scales: {
+            ...commonOptions.scales,
+            y: { ...commonOptions.scales.y, max: 10 }
+        }
     };
 
     const handleSchedule = () => {
@@ -198,307 +196,224 @@ function StudentDashboard() {
             setIsScheduled(false);
             setScheduleDate("");
             setScheduleTime("");
-        }, 2500);
-    };
-
-    const toggleEventDetails = (id) => {
-        setExpandedEventId(expandedEventId === id ? null : id);
+        }, 2000);
     };
 
     if (isLoading) {
         return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                Loading Dashboard...
+            <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
+                <div className="w-12 h-12 border-4 border-sky-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                <p className="text-gray-500 font-medium">Fetching your records...</p>
             </div>
         );
     }
 
-    if (!studentData) {
+    if (error || !studentData) {
         return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center text-2xl font-bold text-red-600">
-                Data not available for this student.
+            <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6">
+                <div className="text-red-500 text-6xl mb-4">⚠️</div>
+                <h2 className="text-2xl font-bold text-gray-800 mb-2">Data Not Found</h2>
+                <p className="text-gray-600 mb-6 text-center max-w-md">
+                    We couldn't find a record for PRN: <b>{localStorage.getItem("studentUsername")}</b>. 
+                    Please ensure you are registered in the Admin database.
+                </p>
+                <button onClick={handleLogout} className="px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800">
+                    Back to Login
+                </button>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-sky-100 via-white to-emerald-100 text-gray-900 p-8 animate-fadein">
+        <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50 text-gray-900 p-6 md:p-8 font-sans">
+            
             {/* --- Header --- */}
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10">
                 <div>
-                    <h1 className="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-sky-700 via-emerald-600 to-sky-400 drop-shadow-sm">
-                        Welcome, {username || "Student"}! 🎓
+                    <h1 className="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-sky-700 via-emerald-600 to-sky-500 tracking-tight">
+                        Welcome, {studentData.name.replace("Student ", "")} 🎓
                     </h1>
-                    <p className="text-xl text-gray-600 mt-2">
-                        Here’s your academic progress overview.
+                    <p className="text-lg text-gray-500 mt-2 font-medium">
+                        PRN: <span className="font-mono text-slate-700">{studentData.prn}</span>
                     </p>
                 </div>
                 <button
                     onClick={handleLogout}
-                    className="mt-4 md:mt-0 flex items-center px-5 py-3 bg-white/80 text-sky-700 rounded-xl shadow-lg hover:bg-white hover:shadow-2xl transition-all duration-300 font-semibold backdrop-blur-sm border border-gray-200"
+                    className="mt-4 md:mt-0 flex items-center px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl shadow-sm hover:shadow-md hover:border-red-200 hover:text-red-600 transition-all duration-300 font-semibold text-sm"
                 >
                     <LogoutIcon />
                     Logout
                 </button>
             </header>
 
-            {/* --- Enhanced Profile & Mental Well-being --- */}
-            <section className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                {/* Student Overview Card */}
-                <div className="p-6 bg-white rounded-2xl shadow-lg">
-                    <div className="mb-4">
-                        <p className="text-xl font-bold text-gray-900">{studentData.name}</p>
-                        <p className="text-gray-600">Semester: 6</p>
-                        <p className="text-gray-600">PRN: 1234567890</p>
-                    </div>
-                    <hr className="border-t border-gray-300 mb-4"/>
-                    <div className="grid grid-cols-3 text-center">
-                        <div>
-                            <p className="text-gray-900 font-bold">{studentData.sem6_att}%</p>
-                            <p className="text-gray-600 text-sm">Attendance</p>
+            {/* --- Key Metrics Section --- */}
+            <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8 mb-10">
+                
+                {/* 1. Profile Card */}
+                <div className="p-8 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 flex flex-col justify-between">
+                    <div>
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h2 className="text-2xl font-bold text-gray-900">Academic Overview</h2>
+                                <p className="text-gray-500 text-sm mt-1">Computer Science • Sem 6</p>
+                            </div>
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
+                                studentData.risk_level === 'High' ? 'bg-red-100 text-red-700' :
+                                studentData.risk_level === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-emerald-100 text-emerald-700'
+                            }`}>
+                                {studentData.risk_level} Risk
+                            </span>
                         </div>
-                        <div>
-                            <p className="text-gray-900 font-bold">{studentData.credits}</p>
-                            <p className="text-gray-600 text-sm">Credits</p>
-                        </div>
-                        <div>
-                            <p className="text-gray-900 font-bold">{studentData.sem6_cgpa}</p>
-                            <p className="text-gray-600 text-sm">CGPA</p>
+                        <div className="grid grid-cols-3 gap-4 text-center">
+                            <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                <p className="text-2xl font-black text-sky-600">{studentData.current_att}%</p>
+                                <p className="text-xs text-gray-500 font-bold uppercase mt-1">Attendance</p>
+                            </div>
+                            <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                <p className="text-2xl font-black text-slate-800">{studentData.credits}</p>
+                                <p className="text-xs text-gray-500 font-bold uppercase mt-1">Credits</p>
+                            </div>
+                            <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                <p className="text-2xl font-black text-emerald-600">{studentData.current_cgpa}</p>
+                                <p className="text-xs text-gray-500 font-bold uppercase mt-1">CGPA</p>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Mental Well-being Card */}
-                <div className="p-6 bg-white rounded-2xl shadow-lg flex flex-col items-center">
-                    <p className="text-xl font-bold text-gray-900 mb-2">Mental Well-being</p>
-                    <div className="relative w-32 h-32 mb-4">
+                {/* 2. Mental Well-being Card */}
+                <div className="p-8 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 flex items-center justify-between relative overflow-hidden">
+                    <div className="relative z-10">
+                        <h2 className="text-xl font-bold text-gray-900 mb-2">Mental Well-being</h2>
+                        <p className="text-gray-500 text-sm mb-6 max-w-[200px]">AI-analyzed wellness score based on activity.</p>
+                        
+                        <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm ${
+                            studentData.wellbeing >= 75 ? "bg-emerald-100 text-emerald-700" : 
+                            studentData.wellbeing >= 50 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"
+                        }`}>
+                            {studentData.wellbeing >= 75 ? "Excellent State 🌟" : studentData.wellbeing >= 50 ? "Moderate State 😐" : "Needs Attention ⚠️"}
+                        </div>
+                    </div>
+
+                    {/* Circular Progress */}
+                    <div className="relative w-32 h-32 flex-shrink-0">
                         <svg className="w-full h-full transform -rotate-90">
-                            <circle
-                                cx="64"
-                                cy="64"
-                                r="56"
-                                stroke="#e5e7eb"
-                                strokeWidth="12"
-                                fill="none"
-                            />
-                            <circle
-                                cx="64"
-                                cy="64"
-                                r="56"
-                                stroke="#3b82f6"
-                                strokeWidth="12"
-                                fill="none"
-                                strokeDasharray={2 * Math.PI * 56}
-                                strokeDashoffset={
-                                    2 * Math.PI * 56 * (1 - studentData.wellbeing / 100)
-                                }
-                                strokeLinecap="round"
+                            <circle cx="64" cy="64" r="56" stroke="#f3f4f6" strokeWidth="12" fill="none" />
+                            <circle cx="64" cy="64" r="56" stroke={studentData.wellbeing >= 75 ? "#10b981" : "#f59e0b"} strokeWidth="12" fill="none" 
+                                strokeDasharray={2 * Math.PI * 56} 
+                                strokeDashoffset={2 * Math.PI * 56 * (1 - studentData.wellbeing / 100)} 
+                                strokeLinecap="round" 
                             />
                         </svg>
-                        <span className="absolute inset-0 flex items-center justify-center text-xl font-bold text-sky-600">
-                            {studentData.wellbeing}%
+                        <span className="absolute inset-0 flex items-center justify-center text-2xl font-bold text-gray-800">
+                            {studentData.wellbeing}
                         </span>
-                    </div>
-                    <div className={`px-4 py-1 rounded-lg mb-2 font-semibold ${
-                        studentData.wellbeing >= 75
-                            ? "bg-green-100 text-green-800"
-                            : studentData.wellbeing >= 50
-                            ? "bg-yellow-100 text-yellow-800"
-                            : "bg-red-100 text-red-800"
-                    }`}>
-                        {studentData.wellbeing >= 75
-                            ? "Good"
-                            : studentData.wellbeing >= 50
-                            ? "Moderate"
-                            : "Bad"}
-                    </div>
-                    <div className="p-2 bg-gray-100 text-gray-500 text-sm text-center rounded">
-                        Regular self-assessment helps maintaining mental wellness.
                     </div>
                 </div>
             </section>
 
-            {/* --- Alert Box --- */}
-            {studentData.sem6_att < 75 && (
-                <div className="mb-8 p-6 bg-yellow-100 border-l-4 border-yellow-500 rounded-lg shadow">
-                    <h2 className="text-lg font-semibold text-yellow-800 mb-2">
-                        Stay on Track
-                    </h2>
-                    <p className="text-gray-700">
-                        Hi {studentData.name.split(" ")[0]}! We've noticed your
-                        attendance has dropped to {studentData.sem6_att}% this
-                        semester. Don't worry - it's not too late to turn things
-                        around! Focus on attending your remaining classes
-                        regularly, especially Database Systems and Software
-                        Engineering. Consider forming study groups with
-                        classmates and don't hesitate to reach out to your
-                        professors during office hours. Remember, every small
-                        step counts towards your success. You've got this!
-                    </p>
-                    <div className="flex flex-wrap gap-3 mt-4">
-                        <button className="px-4 py-2 bg-yellow-500 text-white rounded-lg shadow hover:bg-yellow-600 transition">
-                            Improve Attendance
-                        </button>
-                        <button className="px-4 py-2 bg-sky-500 text-white rounded-lg shadow hover:bg-sky-600 transition">
-                            Study Regularly
-                        </button>
-                        <button
-                            onClick={() => setIsPopupOpen(true)}
-                            className="px-4 py-2 bg-emerald-500 text-white rounded-lg shadow hover:bg-emerald-600 transition"
-                        >
-                            Seek Help 
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* --- Popup Window --- */}
-            {isPopupOpen && (
-                <div className="fixed inset-0 flex items-center justify-center bg-black/40 z-50">
-                    <div className="bg-white w-full max-w-2xl p-8 rounded-2xl shadow-2xl relative animate-fadein">
-                        {/* Close Button */}
-                        <button
-                            onClick={() => setIsPopupOpen(false)}
-                            className="absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-xl"
-                        >
-                            ✕
-                        </button> 
-
-                        {/* Blur Overlay when Scheduled */}
-                        {isScheduled && (
-                            <div className="absolute inset-0 bg-white/80 backdrop-blur-md flex items-center justify-center rounded-2xl">
-                                <p className="text-2xl font-semibold text-emerald-600">
-                                    ✅ Mentor session scheduled successfully!
-                                </p>
-                            </div>
-                        )}
-
-                        {/* Heading */}
-                        <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-sky-700 via-emerald-600 to-sky-400 mb-6">
-                            Contact Mentor
-                        </h2>
-
-                        {/* Mentor Details */}
-                        <div className="mb-6 space-y-3">
-                            <p className="text-lg text-gray-800">
-                                <strong>Name:</strong> Dr. Rajesh Kumar
-                            </p>
-                            <p className="text-lg text-gray-800">
-                                <strong>Email:</strong> rajesh.kumar@university.edu
-                            </p>
-                            <p className="text-lg text-gray-800">
-                                <strong>Phone:</strong> +91 98765 43210
-                            </p>
-                        </div>
-
-                        {/* Schedule Session */}
-                        <div className="space-y-4">
-                            <label className="block text-gray-700 font-medium">
-                                Select Date
-                            </label>
-                            <input
-                                type="date"
-                                value={scheduleDate}
-                                onChange={(e) => setScheduleDate(e.target.value)}
-                                className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-sky-500 outline-none"
-                            />
-                            <label className="block text-gray-700 font-medium">
-                                Select Time
-                            </label>
-                            <input
-                                type="time"
-                                value={scheduleTime}
-                                onChange={(e) => setScheduleTime(e.target.value)}
-                                className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-sky-500 outline-none"
-                            />
-                            <button
-                                onClick={handleSchedule}
-                                className="w-full py-3 bg-gradient-to-r from-sky-600 to-emerald-500 text-white font-bold rounded-lg shadow hover:opacity-90 transition"
-                            >
-                                Schedule Session
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* --- Charts --- */}
-            <main className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                <div className="p-6 h-full bg-gradient-to-br from-sky-50/80 via-white to-white rounded-2xl shadow-2xl transition-all duration-300 hover:shadow-3xl">
-                    <h2 className="text-2xl font-bold text-sky-700 mb-4">
-                        Attendance Overview
-                    </h2>
-                    <div style={{ height: "300px" }}>
+            {/* --- Charts Section --- */}
+            <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+                <div className="p-8 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100">
+                    <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+                        <span className="w-2 h-6 bg-sky-500 rounded-full"></span> Attendance History
+                    </h3>
+                    <div className="h-[250px]">
                         <Bar data={attendanceData} options={commonOptions} />
                     </div>
                 </div>
-                <div className="p-6 h-full bg-gradient-to-br from-emerald-50/80 via-white to-white rounded-2xl shadow-2xl transition-all duration-300 hover:shadow-3xl">
-                    <h2 className="text-2xl font-bold text-emerald-700 mb-4">
-                        Academic Performance
-                    </h2>
-                    <div style={{ height: "300px" }}>
-                        <Line
-                            data={performanceData}
-                            options={{
-                                ...commonOptions,
-                                scales: {
-                                    ...commonOptions.scales,
-                                    y: { ...commonOptions.scales.y, max: 10 },
-                                },
-                            }}
-                        />
+                <div className="p-8 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100">
+                    <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+                        <span className="w-2 h-6 bg-emerald-500 rounded-full"></span> Academic Performance
+                    </h3>
+                    <div className="h-[250px]">
+                        <Line data={performanceData} options={cgpaOptions} />
                     </div>
                 </div>
-            </main>
+            </section>
 
-            {/* --- Upcoming Events --- */}
-            <section className="p-6 bg-gradient-to-br from-white via-white to-yellow-50/80 rounded-2xl shadow-2xl transition-all duration-300 hover:shadow-3xl">
-                <h2 className="text-2xl font-bold text-yellow-800 mb-4">
-                    📅 Upcoming Events
-                </h2>
-                <ul className="space-y-4">
-                    {events.map((event) => (
-                        <li
-                            key={event.id}
-                            className="p-4 bg-white/60 rounded-lg border-l-4 border-yellow-400"
-                        >
-                            <div className="flex items-center justify-between">
+            {/* --- Alert & Events --- */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                
+                {/* Events Column */}
+                <div className="lg:col-span-2 p-8 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100">
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-lg font-bold text-gray-900">Upcoming Schedule</h3>
+                        <button onClick={() => setIsPopupOpen(true)} className="text-sm font-bold text-sky-600 hover:bg-sky-50 px-3 py-1.5 rounded-lg transition">
+                            + Schedule Session
+                        </button>
+                    </div>
+                    <div className="space-y-4">
+                        {events.map((event) => (
+                            <div key={event.id} className="p-4 rounded-2xl bg-gray-50 hover:bg-white hover:shadow-md transition-all border border-transparent hover:border-gray-100 flex items-center justify-between group">
                                 <div>
-                                    <p className="font-semibold text-gray-800">
-                                        {event.title}
-                                    </p>
-                                    <p className="text-sm text-gray-500">
-                                        {event.date}
+                                    <h4 className="font-bold text-gray-800">{event.title}</h4>
+                                    <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
+                                        📅 {event.date}
                                     </p>
                                 </div>
-                                <button
-                                    onClick={() => toggleEventDetails(event.id)}
-                                    className="text-sky-600 hover:text-sky-800 font-medium transition"
-                                >
-                                    {expandedEventId === event.id
-                                        ? "Hide"
-                                        : "Details"}
+                                <button onClick={() => setExpandedEventId(expandedEventId === event.id ? null : event.id)} className="text-xs font-bold bg-white border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:text-sky-600 hover:border-sky-200 transition">
+                                    {expandedEventId === event.id ? "Close" : "View"}
                                 </button>
                             </div>
+                        ))}
+                    </div>
+                </div>
 
-                            {/* Dropdown Details */}
-                            {expandedEventId === event.id && (
-                                <div className="mt-3 p-3 bg-sky-50 rounded-lg border text-gray-700 animate-fadein">
-                                    <p>
-                                        <strong>Mentor:</strong> Dr. Rajesh Kumar
-                                    </p>
-                                    <p>
-                                        <strong>Session:</strong> {event.title}
-                                    </p>
-                                    <p>
-                                        <strong>Date & Time:</strong> {event.date}
-                                    </p>
+                {/* Risk Alert Column */}
+                <div className={`p-8 rounded-3xl border ${studentData.current_att < 75 ? "bg-amber-50 border-amber-100" : "bg-emerald-50 border-emerald-100"}`}>
+                    <h3 className={`text-lg font-bold mb-4 ${studentData.current_att < 75 ? "text-amber-800" : "text-emerald-800"}`}>
+                        {studentData.current_att < 75 ? "⚠️ Attention Needed" : "✅ You are doing great!"}
+                    </h3>
+                    <p className={`text-sm leading-relaxed mb-6 ${studentData.current_att < 75 ? "text-amber-700" : "text-emerald-700"}`}>
+                        {studentData.current_att < 75 
+                            ? "Your attendance has fallen below the 75% threshold. Please prioritize attending upcoming lectures to avoid academic penalties."
+                            : "Your attendance and academic scores are on track. Keep up the consistent effort!"}
+                    </p>
+                    {studentData.current_att < 75 && (
+                        <button onClick={() => setIsPopupOpen(true)} className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow-lg shadow-amber-500/20 transition">
+                            Contact Mentor
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* --- Scheduling Popup --- */}
+            {isPopupOpen && (
+                <div className="fixed inset-0 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm z-50 p-4">
+                    <div className="bg-white w-full max-w-md p-8 rounded-3xl shadow-2xl relative animate-fadein">
+                        <button onClick={() => setIsPopupOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-gray-800">✕</button>
+                        
+                        {isScheduled ? (
+                            <div className="text-center py-10">
+                                <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">✓</div>
+                                <h3 className="text-2xl font-bold text-gray-900">Scheduled!</h3>
+                                <p className="text-gray-500 mt-2">Your mentor has been notified.</p>
+                            </div>
+                        ) : (
+                            <>
+                                <h2 className="text-2xl font-bold text-gray-900 mb-2">Book a Session</h2>
+                                <p className="text-gray-500 text-sm mb-6">Discuss your progress with Dr. Rajesh Kumar.</p>
+                                
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Date</label>
+                                        <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sky-500 outline-none transition" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Time</label>
+                                        <input type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sky-500 outline-none transition" />
+                                    </div>
+                                    <button onClick={handleSchedule} className="w-full py-3.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition shadow-xl mt-2">
+                                        Confirm Booking
+                                    </button>
                                 </div>
-                            )}
-                        </li>
-                    ))}
-                </ul>
-            </section>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
