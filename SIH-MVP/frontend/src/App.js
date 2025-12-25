@@ -4,7 +4,6 @@ import { AuthContext, AuthProvider } from './AuthContext';
 import { motion, AnimatePresence } from "framer-motion";
 import { 
     LayoutDashboard, 
-    Users, 
     LogOut, 
     UploadCloud, 
     Search, 
@@ -16,7 +15,9 @@ import {
     TrendingUp,
     AlertCircle,
     CheckCircle2,
-    BarChart3
+    BarChart3,
+    Users,
+    Mail
 } from 'lucide-react';
 import {
     Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, PointElement, LineElement, Filler
@@ -29,14 +30,17 @@ import LoginPage from "./LoginPage";
 import StudentDashboard from "./StudentDashboard";
 import StudentLoginPage from "./StudentLoginPage";
 import SubjectScoresChart from "./SubjectScoresChart";
-import UserManagement from "./UserManagement";
 import AboutUs from "./AboutUs";
+
+// --- Sign Up Flow Components ---
+import SignUpSelection from "./SignUpSelection"; 
+import StudentSignUp from "./StudentSignUp";
+import AdminSignUp from "./AdminSignUp";
 
 // --- Register Chart.js ---
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, PointElement, LineElement, Filler);
 
 // --- UI Components ---
-
 const Badge = ({ level }) => {
     const styles = {
         High: "bg-red-50 text-red-700 ring-red-600/20",
@@ -46,9 +50,8 @@ const Badge = ({ level }) => {
         Overdue: "bg-red-50 text-red-700 ring-red-600/20",
         Unknown: "bg-gray-50 text-gray-700 ring-gray-600/20"
     };
-    const activeStyle = styles[level] || styles.Unknown;
     return (
-        <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${activeStyle}`}>
+        <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${styles[level] || styles.Unknown}`}>
             {level}
         </span>
     );
@@ -89,18 +92,20 @@ function DashboardPage() {
     const [searchQuery, setSearchQuery] = useState("");
     const [riskFilter, setRiskFilter] = useState("all");
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    
+    // Edit/Update Logic
     const [editMode, setEditMode] = useState(false);
     const [editableStudent, setEditableStudent] = useState(null);
-    const [view, setView] = useState('dashboard');
+
     const { isLoggedIn, userRole, logout, username } = useContext(AuthContext);
 
     // --- Data Fetching ---
     useEffect(() => {
-        if (isLoggedIn && view === 'dashboard') {
+        if (isLoggedIn) {
             let url = `http://127.0.0.1:5000/api/students?search=${searchQuery}&filter=${riskFilter}`;
             fetch(url).then(res => res.json()).then(data => setStudents(data)).catch(console.error);
         }
-    }, [refresh, searchQuery, riskFilter, isLoggedIn, view]);
+    }, [refresh, searchQuery, riskFilter, isLoggedIn]);
 
     // --- Handlers ---
     const fetchDetails = (id) => {
@@ -159,6 +164,32 @@ function DashboardPage() {
         }
     };
 
+    // --- NEW: Email Notification Handler ---
+    const handleNotify = async () => {
+        if (!selected) return;
+        
+        const confirmNotify = window.confirm(
+            `Send an official risk alert to the mentor for Student ${selected.info.student_id}?`
+        );
+
+        if (confirmNotify) {
+            try {
+                const response = await fetch("http://127.0.0.1:5000/api/notify", {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        student_id: selected.info.student_id,
+                        risk_level: selected.info.risk_level
+                    })
+                });
+                const data = await response.json();
+                alert("✅ " + data.message);
+            } catch (error) {
+                alert("❌ Failed to send notification.");
+            }
+        }
+    };
+
     const handleExport = () => {
         const data = selected.info;
         const csvContent = 
@@ -206,12 +237,13 @@ function DashboardPage() {
         alert("Appointment Scheduled");
     };
 
-    // --- Stats & Charts ---
+    // --- Stats ---
     const highRiskCount = students.filter((s) => s.risk_level === "High").length;
     const mediumRiskCount = students.filter((s) => s.risk_level === "Medium").length;
     const lowRiskCount = students.filter((s) => s.risk_level === "Low").length;
     const totalStudents = students.length;
 
+    // --- Charts ---
     const cgpa = selected?.info ? [
         Number(selected.info.sem1_cgpa) || 0,
         Number(selected.info.sem2_cgpa) || 0,
@@ -253,140 +285,12 @@ function DashboardPage() {
         },
     };
 
-    // --- Render Content ---
-    
-    const renderContent = () => {
-        if (view === 'userManagement' && userRole === 'admin') {
-            return <div className="p-10 max-w-[1920px] mx-auto"><UserManagement /></div>;
-        }
-
-        return (
-            <div className="p-6 md:p-12 max-w-[1920px] mx-auto space-y-12">
-                {/* Page Header */}
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-                    <div>
-                        <h2 className="text-3xl font-bold tracking-tight text-gray-900">Overview</h2>
-                        <p className="mt-2 text-base text-gray-500">Real-time insights into student academic performance and risk assessment.</p>
-                    </div>
-                    <div className="w-full md:w-96 relative">
-                        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                            <Search className="h-5 w-5 text-gray-400" aria-hidden="true" />
-                        </div>
-                        <input
-                            type="text"
-                            className="block w-full rounded-xl border-0 py-3 pl-10 pr-4 text-gray-900 ring-1 ring-inset ring-gray-200 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-slate-600 sm:text-sm sm:leading-6 shadow-sm"
-                            placeholder="Search students by name or ID..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                        />
-                    </div>
-                </div>
-
-                {/* KPI Cards */}
-                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                    <StatCard title="Total Students" value={totalStudents} icon={Users} trend="12%" subtext="Active enrollment" />
-                    <StatCard title="High Risk" value={highRiskCount} icon={AlertCircle} subtext="Requires immediate attention" />
-                    <StatCard title="Medium Risk" value={mediumRiskCount} icon={FileText} subtext="Monitor closely" />
-                    <StatCard title="Low Risk" value={lowRiskCount} icon={CheckCircle2} subtext="On track" />
-                </div>
-
-                {/* Main Grid: Chart + List */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    {/* Left: Chart */}
-                    <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col">
-                        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <BarChart3 className="h-5 w-5 text-gray-500" />
-                                <h3 className="text-base font-semibold leading-6 text-gray-900">Academic Performance Distribution</h3>
-                            </div>
-                            <button className="text-sm font-medium text-emerald-600 hover:text-emerald-700">View Full Report</button>
-                        </div>
-                        <div className="p-6 flex-1 min-h-[400px]">
-                            {/* Assuming SubjectScoresChart is responsive */}
-                            <SubjectScoresChart />
-                        </div>
-                    </div>
-
-                    {/* Right: Risk Filter */}
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-                        <h3 className="text-base font-semibold leading-6 text-gray-900 mb-6">Risk Filter</h3>
-                        <div className="space-y-3">
-                            {['All', 'High', 'Medium', 'Low'].map((filter) => (
-                                <button
-                                    key={filter}
-                                    onClick={() => setRiskFilter(filter.toLowerCase())}
-                                    className={`w-full flex items-center justify-between px-5 py-4 text-sm font-medium rounded-lg transition-all duration-200 border ${
-                                        riskFilter === filter.toLowerCase() 
-                                        ? 'bg-slate-900 text-white border-slate-900 shadow-md' 
-                                        : 'bg-white text-gray-700 border-gray-100 hover:border-gray-300 hover:bg-gray-50'
-                                    }`}
-                                >
-                                    <span>{filter} Risk</span>
-                                    {filter !== 'All' && <Badge level={filter} />}
-                                </button>
-                            ))}
-                        </div>
-                        <div className="mt-8 pt-6 border-t border-gray-100">
-                             <p className="text-xs text-gray-500 leading-relaxed">
-                                Use these filters to isolate students based on their AI-predicted dropout risk score. High risk students should be prioritized for counseling.
-                             </p>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Student Grid */}
-                <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-6">Student Roster</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-                        {students.map((student) => (
-                            <div 
-                                key={student.student_id}
-                                onClick={() => fetchDetails(student.student_id)}
-                                className="group relative flex flex-col bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-lg hover:-translate-y-1 hover:border-slate-300 transition-all duration-300 cursor-pointer overflow-hidden"
-                            >
-                                <div className={`absolute top-0 left-0 w-full h-1.5 ${student.risk_level === 'High' ? 'bg-red-500' : student.risk_level === 'Medium' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                                <div className="p-6 flex-1">
-                                    <div className="flex justify-between items-start mb-5">
-                                        <div>
-                                            <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">ID: {student.student_id}</p>
-                                            <h4 className="text-lg font-bold text-gray-900 mt-1">Engineering</h4>
-                                        </div>
-                                        <Badge level={student.risk_level} />
-                                    </div>
-                                    <div className="space-y-4">
-                                        <div>
-                                            <div className="flex justify-between text-xs font-medium text-gray-500 mb-1.5">
-                                                <span>Attendance</span>
-                                                <span className="text-gray-900">{student.attendance_percentage}%</span>
-                                            </div>
-                                            <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                                                <div className="bg-slate-800 h-2 rounded-full" style={{ width: `${student.attendance_percentage}%` }}></div>
-                                            </div>
-                                        </div>
-                                        <div className="flex justify-between items-center pt-4 border-t border-gray-50">
-                                            <span className="text-xs text-gray-500 font-medium">Avg Score</span>
-                                            <span className="text-base font-bold text-gray-900">{student.avg_test_score}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="bg-gray-50 px-6 py-3 flex justify-between items-center group-hover:bg-slate-50 transition-colors border-t border-gray-100">
-                                    <span className="text-xs font-semibold text-gray-600">View Profile</span>
-                                    <ChevronRight size={16} className="text-gray-400 group-hover:text-slate-600 transition-colors" />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
     return (
         <div className="flex h-screen bg-gray-50/50 font-sans text-gray-900">
             {/* Mobile Sidebar Overlay */}
             {isSidebarOpen && <div className="fixed inset-0 bg-gray-900/50 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
-            {/* Sidebar - Reverted to CSS Transitions for Desktop Stability */}
+            {/* Sidebar */}
             <aside 
                 className={`
                     fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-gray-200 flex flex-col 
@@ -401,34 +305,24 @@ function DashboardPage() {
                 
                 <nav className="flex-1 overflow-y-auto px-4 py-6 space-y-2">
                     <button 
-                        onClick={() => { setView('dashboard'); setIsSidebarOpen(false); }}
-                        className={`group flex w-full items-center rounded-lg px-4 py-3 text-sm font-medium transition-colors ${view === 'dashboard' ? 'bg-slate-100 text-slate-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}
+                        className={`group flex w-full items-center rounded-lg px-4 py-3 text-sm font-medium bg-slate-100 text-slate-900 transition-colors`}
                     >
-                        <LayoutDashboard className={`mr-3 h-5 w-5 flex-shrink-0 ${view === 'dashboard' ? 'text-slate-900' : 'text-gray-400 group-hover:text-gray-500'}`} />
+                        <LayoutDashboard className="mr-3 h-5 w-5 flex-shrink-0 text-slate-900" />
                         Overview
                     </button>
-                    {userRole === 'admin' && (
-                        <button 
-                            onClick={() => { setView('userManagement'); setIsSidebarOpen(false); }}
-                            className={`group flex w-full items-center rounded-lg px-4 py-3 text-sm font-medium transition-colors ${view === 'userManagement' ? 'bg-slate-100 text-slate-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}
-                        >
-                            <Users className={`mr-3 h-5 w-5 flex-shrink-0 ${view === 'userManagement' ? 'text-slate-900' : 'text-gray-400 group-hover:text-gray-500'}`} />
-                            User Management
-                        </button>
-                    )}
                 </nav>
 
                 <div className="border-t border-gray-200 p-6 space-y-4">
                     <div className="flex items-center px-2">
                         <div className="h-10 w-10 rounded-full bg-slate-900 flex items-center justify-center text-white font-bold text-sm shadow-sm">
-                            {username.charAt(0).toUpperCase()}
+                            {username?.charAt(0).toUpperCase()}
                         </div>
                         <div className="ml-3">
                             <p className="text-sm font-bold text-gray-900">{username}</p>
                             <p className="text-xs font-medium text-gray-500 capitalize">{userRole}</p>
                         </div>
                     </div>
-                     {userRole === 'admin' && (
+                      {userRole === 'admin' && (
                         <form onSubmit={handleFileUpload} className="relative">
                             <input type="file" id="file-upload" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                             <button className="w-full flex justify-center items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors">
@@ -457,7 +351,121 @@ function DashboardPage() {
                 </div>
 
                 <main className="flex-1 overflow-y-auto">
-                    {renderContent()}
+                    <div className="p-6 md:p-12 max-w-[1920px] mx-auto space-y-12">
+                        {/* Page Header */}
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                            <div>
+                                <h2 className="text-3xl font-bold tracking-tight text-gray-900">Overview</h2>
+                                <p className="mt-2 text-base text-gray-500">Real-time insights into student academic performance and risk assessment.</p>
+                            </div>
+                            <div className="w-full md:w-96 relative">
+                                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                                    <Search className="h-5 w-5 text-gray-400" aria-hidden="true" />
+                                </div>
+                                <input
+                                    type="text"
+                                    className="block w-full rounded-xl border-0 py-3 pl-10 pr-4 text-gray-900 ring-1 ring-inset ring-gray-200 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-slate-600 sm:text-sm sm:leading-6 shadow-sm"
+                                    placeholder="Search students by name or ID..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        {/* KPI Cards */}
+                        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                            <StatCard title="Total Students" value={totalStudents} icon={Users} trend="12%" subtext="Active enrollment" />
+                            <StatCard title="High Risk" value={highRiskCount} icon={AlertCircle} subtext="Requires immediate attention" />
+                            <StatCard title="Medium Risk" value={mediumRiskCount} icon={FileText} subtext="Monitor closely" />
+                            <StatCard title="Low Risk" value={lowRiskCount} icon={CheckCircle2} subtext="On track" />
+                        </div>
+
+                        {/* Main Grid: Chart + List */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            {/* Left: Chart */}
+                            <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col">
+                                <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <BarChart3 className="h-5 w-5 text-gray-500" />
+                                        <h3 className="text-base font-semibold leading-6 text-gray-900">Academic Performance Distribution</h3>
+                                    </div>
+                                </div>
+                                <div className="p-6 flex-1 min-h-[400px]">
+                                    <SubjectScoresChart />
+                                </div>
+                            </div>
+
+                            {/* Right: Risk Filter */}
+                            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                                <h3 className="text-base font-semibold leading-6 text-gray-900 mb-6">Risk Filter</h3>
+                                <div className="space-y-3">
+                                    {['All', 'High', 'Medium', 'Low'].map((filter) => (
+                                        <button
+                                            key={filter}
+                                            onClick={() => setRiskFilter(filter.toLowerCase())}
+                                            className={`w-full flex items-center justify-between px-5 py-4 text-sm font-medium rounded-lg transition-all duration-200 border ${
+                                                riskFilter === filter.toLowerCase() 
+                                                ? 'bg-slate-900 text-white border-slate-900 shadow-md' 
+                                                : 'bg-white text-gray-700 border-gray-100 hover:border-gray-300 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            <span>{filter} Risk</span>
+                                            {filter !== 'All' && <Badge level={filter} />}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="mt-8 pt-6 border-t border-gray-100">
+                                     <p className="text-xs text-gray-500 leading-relaxed">
+                                        Use these filters to isolate students based on their AI-predicted dropout risk score.
+                                     </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Student Grid */}
+                        <div>
+                            <h3 className="text-xl font-bold text-gray-900 mb-6">Student Roster</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
+                                {students.map((student) => (
+                                    <div 
+                                        key={student.student_id}
+                                        onClick={() => fetchDetails(student.student_id)}
+                                        className="group relative flex flex-col bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-lg hover:-translate-y-1 hover:border-slate-300 transition-all duration-300 cursor-pointer overflow-hidden"
+                                    >
+                                        <div className={`absolute top-0 left-0 w-full h-1.5 ${student.risk_level === 'High' ? 'bg-red-500' : student.risk_level === 'Medium' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                                        <div className="p-6 flex-1">
+                                            <div className="flex justify-between items-start mb-5">
+                                                <div>
+                                                    <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">ID: {student.student_id}</p>
+                                                    <h4 className="text-lg font-bold text-gray-900 mt-1">Engineering</h4>
+                                                </div>
+                                                <Badge level={student.risk_level} />
+                                            </div>
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <div className="flex justify-between text-xs font-medium text-gray-500 mb-1.5">
+                                                        <span>Attendance</span>
+                                                        <span className="text-gray-900">{student.attendance_percentage}%</span>
+                                                    </div>
+                                                    <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                                                        <div className="bg-slate-800 h-2 rounded-full" style={{ width: `${student.attendance_percentage}%` }}></div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex justify-between items-center pt-4 border-t border-gray-50">
+                                                    <span className="text-xs text-gray-500 font-medium">Avg Score</span>
+                                                    <span className="text-base font-bold text-gray-900">{student.avg_test_score}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="bg-gray-50 px-6 py-3 flex justify-between items-center group-hover:bg-slate-50 transition-colors border-t border-gray-100">
+                                            <span className="text-xs font-semibold text-gray-600">View Profile</span>
+                                            <ChevronRight size={16} className="text-gray-400 group-hover:text-slate-600 transition-colors" />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
                 </main>
             </div>
 
@@ -479,7 +487,7 @@ function DashboardPage() {
                                         <div className="flex items-start justify-between border-b border-gray-100 pb-6 mb-8">
                                             <div>
                                                 <h3 className="text-2xl font-bold leading-6 text-gray-900" id="modal-title">Student Profile</h3>
-                                                <p className="text-sm text-gray-500 mt-2">Comprehensive academic analysis and risk report for <span className="font-mono text-slate-700 bg-slate-100 px-2 py-1 rounded ml-1">{selected.info.student_id}</span></p>
+                                                <p className="text-sm text-gray-500 mt-2">Comprehensive academic analysis for <span className="font-mono text-slate-700 bg-slate-100 px-2 py-1 rounded ml-1">{selected.info.student_id}</span></p>
                                             </div>
                                             <button onClick={() => setSelected(null)} className="rounded-full p-2 bg-gray-50 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors focus:outline-none">
                                                 <X className="h-6 w-6" />
@@ -487,7 +495,7 @@ function DashboardPage() {
                                         </div>
 
                                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-                                            {/* Left Column: Key Stats & Actions */}
+                                            {/* Left Column */}
                                             <div className="lg:col-span-5 space-y-8">
                                                 <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100">
                                                     <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-6">Current Metrics</h4>
@@ -525,12 +533,12 @@ function DashboardPage() {
                                                         {userRole === 'admin' && (
                                                             editMode ? (
                                                                 <>
-                                                                    <button onClick={handleUpdate} className="flex-1 rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-slate-800 transition-colors">Save Changes</button>
+                                                                    <button onClick={handleUpdate} className="flex-1 rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-slate-800 transition-colors">Save</button>
                                                                     <button onClick={() => setEditMode(false)} className="flex-1 rounded-xl bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-200 hover:bg-gray-50 transition-colors">Cancel</button>
                                                                 </>
                                                             ) : (
                                                                 <>
-                                                                    <button onClick={() => setEditMode(true)} className="flex-1 rounded-xl bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-200 hover:bg-gray-50 transition-colors">Edit Details</button>
+                                                                    <button onClick={() => setEditMode(true)} className="flex-1 rounded-xl bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-200 hover:bg-gray-50 transition-colors">Edit</button>
                                                                     <button onClick={handleDelete} className="px-4 py-3 rounded-xl bg-white text-sm font-bold text-red-600 shadow-sm ring-1 ring-inset ring-gray-200 hover:bg-red-50 transition-colors">Delete</button>
                                                                 </>
                                                             )
@@ -539,15 +547,23 @@ function DashboardPage() {
                                                     <button onClick={handleExport} className="w-full flex justify-center items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-200 hover:bg-gray-50 transition-colors">
                                                         <FileText className="h-4 w-4" /> Export Student Record
                                                     </button>
+                                                    
+                                                    {/* --- NEW SECTION: Alert Actions --- */}
                                                     {(selected.info.risk_level === "Medium" || selected.info.risk_level === "High") && (
-                                                        <button onClick={handleSchedule} className="w-full flex justify-center items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-3 text-sm font-bold text-white shadow-md hover:from-violet-700 hover:to-indigo-700 transition-all">
-                                                            <Calendar className="h-4 w-4" /> Schedule Counseling Session
-                                                        </button>
+                                                        <div className="flex gap-3 mt-2">
+                                                            <button onClick={handleSchedule} className="flex-1 flex justify-center items-center gap-2 rounded-xl bg-indigo-50 text-indigo-700 px-4 py-3 text-sm font-bold border border-indigo-100 hover:bg-indigo-100 transition-all">
+                                                                <Calendar className="h-4 w-4" /> Schedule
+                                                            </button>
+                                                            {/* EMAIL ALERT BUTTON */}
+                                                            <button onClick={handleNotify} className="flex-1 flex justify-center items-center gap-2 rounded-xl bg-red-600 text-white px-4 py-3 text-sm font-bold shadow-md hover:bg-red-700 transition-all">
+                                                                <Mail className="h-4 w-4" /> Send Alert
+                                                            </button>
+                                                        </div>
                                                     )}
                                                 </div>
                                             </div>
 
-                                            {/* Column 2: Analysis */}
+                                            {/* Right Column: Charts & Risks */}
                                             <div className="lg:col-span-7 space-y-8">
                                                 <div>
                                                     <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Performance Trajectory</h4>
@@ -579,9 +595,7 @@ function DashboardPage() {
                                                                         </ul>
                                                                     </div>
                                                                 ) : (
-                                                                    <p className="mt-1 text-sm text-emerald-700">
-                                                                        This student is performing well within expected parameters. Continue monitoring routine metrics.
-                                                                    </p>
+                                                                    <p className="mt-1 text-sm text-emerald-700">This student is performing well within expected parameters.</p>
                                                                 )}
                                                             </div>
                                                         </div>
@@ -600,7 +614,6 @@ function DashboardPage() {
     );
 }
 
-// --- App Router (No changes needed here) ---
 function AppRoutes() {
     const { isLoggedIn, userRole } = useContext(AuthContext);
     const location = useLocation();
@@ -609,6 +622,13 @@ function AppRoutes() {
         <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
+            
+            {/* --- UPDATED SIGN UP FLOW ROUTES --- */}
+            <Route path="/signup" element={<SignUpSelection />} />
+            <Route path="/signup/student" element={<StudentSignUp />} />
+            <Route path="/signup/admin" element={<AdminSignUp />} />
+            {/* ----------------------------------- */}
+            
             <Route path="/about" element={<AboutUs />} />
             <Route path="/student-login" element={<StudentLoginPage />} />
             <Route path="/dashboard" element={

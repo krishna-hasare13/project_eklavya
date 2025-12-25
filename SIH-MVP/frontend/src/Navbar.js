@@ -1,7 +1,7 @@
-import React, { useContext, useState, useEffect } from 'react';
+import React, { useContext, useState, useEffect, useLayoutEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogOut, Menu, X, ChevronRight } from 'lucide-react';
+import { LogOut, Menu, X, ChevronRight, UserPlus } from 'lucide-react';
 import { AuthContext } from './AuthContext';
 
 const Navbar = () => {
@@ -20,46 +20,42 @@ const Navbar = () => {
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
-    // 2. HELPER: Robust Scroll Function (Retries + Offset)
+    // 2. HELPER: Instant Jump Function (Direct Redirect)
     const scrollToLoginSection = () => {
         const targetId = 'login-portals-section';
         let attempts = 0;
-        const maxAttempts = 20; // Try for 2 seconds (20 * 100ms)
+        const maxAttempts = 15;
 
         const checkAndScroll = () => {
             const element = document.getElementById(targetId);
             
             if (element) {
                 // Calculation to handle Fixed Navbar obscuring the view
-                // We subtract 100px to give it some breathing room below the navbar
                 const headerOffset = 100; 
                 const elementPosition = element.getBoundingClientRect().top;
                 const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
       
                 window.scrollTo({
                     top: offsetPosition,
-                    behavior: "smooth"
+                    behavior: "instant" 
                 });
             } else if (attempts < maxAttempts) {
-                // If element not found, wait 100ms and try again
+                // Retry very quickly (every 20ms) to catch the element as soon as it mounts
                 attempts++;
-                setTimeout(checkAndScroll, 100);
+                setTimeout(checkAndScroll, 20);
             }
         };
 
-        // Start checking
         checkAndScroll();
     };
 
-    // 3. EFFECT: Listen for navigation arriving with the 'scrollToLogin' state
-    useEffect(() => {
+    // 3. LAYOUT EFFECT: Runs synchronously before visual paint
+    useLayoutEffect(() => {
         if (location.pathname === '/' && location.state?.scrollToLogin) {
             scrollToLoginSection();
-            
-            // Clear the state so it doesn't re-trigger incorrectly later
             window.history.replaceState({}, document.title);
         }
-    }, [location]);
+    }, [location.pathname, location.state]);
 
     const handleLogout = () => {
         logout();
@@ -69,21 +65,13 @@ const Navbar = () => {
 
     const handleLoginClick = () => {
         setMobileMenuOpen(false);
-        
         if (location.pathname === '/') {
-            // Case A: Already on Home Page -> Just scroll
             scrollToLoginSection();
         } else {
-            // Case B: On another page -> Navigate Home AND tell it to scroll
             navigate('/', { state: { scrollToLogin: true } });
         }
     };
 
-    // ... (Rest of your component remains the same: isHomePage, navVariants, return JSX) ...
-    // Note: I am omitting the render logic below to save space, 
-    // simply paste the logic above into your existing Navbar file.
-    
-    // Logic: Show Brand Name if (Not Home Page) OR (We have scrolled down)
     const isHomePage = location.pathname === '/';
     const showBrand = !isHomePage || scrolled;
 
@@ -116,8 +104,6 @@ const Navbar = () => {
                         className={`flex items-center gap-2 group transition-all duration-500 ease-in-out ${showBrand ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4 pointer-events-none'}`}
                         onClick={() => setMobileMenuOpen(false)}
                     >
-                         {/* <img src="/logoeklavyafinal.png" alt="Logo" className="h-8 w-8 object-contain" /> */}
-                        
                         <span className="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-sky-600 via-emerald-600 to-sky-500">
                             Eklavya
                         </span>
@@ -152,13 +138,24 @@ const Navbar = () => {
                                 </button>
                             </div>
                         ) : (
-                            <button 
-                                onClick={handleLoginClick}
-                                className="group flex items-center gap-2 px-5 py-2 rounded-full bg-slate-900 text-white text-sm font-bold shadow-md hover:bg-slate-800 hover:shadow-lg transition-all"
-                            >
-                                Login
-                                <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                            </button>
+                            <div className="flex items-center gap-3">
+                                {/* SIGN UP BUTTON - NEW */}
+                                <Link 
+                                    to="/signup"
+                                    className="flex items-center gap-2 px-4 py-2 rounded-full text-slate-600 font-semibold text-sm hover:text-emerald-600 transition-all"
+                                >
+                                    <UserPlus size={16} />
+                                    Sign Up
+                                </Link>
+
+                                <button 
+                                    onClick={handleLoginClick}
+                                    className="group flex items-center gap-2 px-5 py-2 rounded-full bg-slate-900 text-white text-sm font-bold shadow-md hover:bg-slate-800 hover:shadow-lg transition-all"
+                                >
+                                    Login
+                                    <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                                </button>
+                            </div>
                         )}
                     </div>
 
@@ -213,12 +210,22 @@ const Navbar = () => {
                                     </button>
                                 </div>
                             ) : (
-                                <button 
-                                    onClick={handleLoginClick}
-                                    className="w-full py-4 rounded-xl bg-slate-900 text-white font-bold text-lg shadow-xl"
-                                >
-                                    Login Portal
-                                </button>
+                                <div className="space-y-4 pt-4">
+                                    <Link 
+                                        to="/signup"
+                                        onClick={() => setMobileMenuOpen(false)}
+                                        className="w-full flex justify-center items-center gap-2 py-3 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold text-lg shadow-sm"
+                                    >
+                                        <UserPlus size={20} />
+                                        Create Account
+                                    </Link>
+                                    <button 
+                                        onClick={handleLoginClick}
+                                        className="w-full py-4 rounded-xl bg-slate-900 text-white font-bold text-lg shadow-xl"
+                                    >
+                                        Login Portal
+                                    </button>
+                                </div>
                             )}
                         </div>
                     </motion.div>
