@@ -1,24 +1,45 @@
 import React, { useContext, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion'; // Added AnimatePresence here
+import { User, Lock, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import { AuthContext } from './AuthContext';
 
+// --- Simple Navbar Component (Internal) ---
+const SimpleNavbar = () => (
+    <nav className="absolute top-0 left-0 w-full z-50 px-6 py-6 flex justify-between items-center">
+        <Link to="/" className="flex items-center gap-2 group">
+            <span className="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-sky-600 via-emerald-600 to-sky-500">
+                Eklavya
+            </span>
+        </Link>
+        <Link 
+            to="/about" 
+            className="text-sm font-bold text-slate-600 hover:text-emerald-600 transition-colors"
+        >
+            About Us
+        </Link>
+    </nav>
+);
+
+// --- Main Login Page ---
 const LoginPage = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
-    const [validationError, setValidationError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
     const { login } = useContext(AuthContext);
     const navigate = useNavigate();
 
     const handleLogin = async (e) => {
         e.preventDefault();
         setError('');
-        setValidationError('');
-
+        
         if (!username || !password) {
-            setValidationError('🚨 Please fill out all fields.');
+            setError('Please fill out all fields.');
             return;
         }
+
+        setIsLoading(true);
 
         try {
             const response = await fetch('http://127.0.0.1:5000/api/login', {
@@ -33,62 +54,121 @@ const LoginPage = () => {
                     login(data.role, username);
                     navigate('/dashboard');
                 } else {
-                    setError('Only admin users can log in here. Please use the correct login page for your role.');
+                    setError('Access Restricted: Admin privileges required.');
                 }
             } else {
-                setError(data.message);
+                setError(data.message || 'Invalid credentials.');
             }
         } catch (err) {
-            setError('Failed to connect to the server.');
+            setError('Unable to connect to the server. Please try again later.');
+        } finally {
+            setIsLoading(false);
         }
     };
 
-   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-100 via-green-100 to-yellow-100 p-6">
-      <div className="w-full max-w-md p-10 space-y-8 bg-white/90 backdrop-blur-sm border border-white/40 rounded-3xl shadow-2xl">
-        <h2 className="text-4xl font-extrabold text-center text-blue-700 mb-2">Admin Login</h2>
-        <p className="text-center text-gray-600 text-lg mb-6">Sign in to view Students dashboard.</p>
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div>
-            <label className="block text-base font-medium text-gray-700 mb-2">Username</label>
-            <input
-              type="text"
-              className="mt-1 block w-full px-5 py-3 border border-gray-300 bg-white/70 text-gray-800 placeholder-gray-500 rounded-xl shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 text-lg"
-              placeholder="Enter your username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-base font-medium text-gray-700 mb-2">Password</label>
-            <input
-              type="password"
-              className="mt-1 block w-full px-5 py-3 border border-gray-300 bg-white/70 text-gray-800 placeholder-gray-500 rounded-xl shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 text-lg"
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          {validationError && (
-            <div className="flex items-center p-3 rounded-lg bg-red-100 text-red-700 font-medium text-sm">
-              {validationError}
+    return (
+        <div className="min-h-screen bg-[#F8FAFC] flex flex-col relative overflow-hidden font-sans text-slate-900 selection:bg-emerald-100 selection:text-emerald-900">
+            {/* Background Decor */}
+            <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-sky-200/20 rounded-full blur-[120px] pointer-events-none" />
+            <div className="absolute bottom-[-10%] right-[-5%] w-[500px] h-[500px] bg-emerald-200/20 rounded-full blur-[100px] pointer-events-none" />
+
+            <SimpleNavbar />
+
+            <div className="flex-1 flex items-center justify-center p-4 z-10">
+                <motion.div 
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6, type: "spring", stiffness: 50 }}
+                    className="w-full max-w-md"
+                >
+                    <div className="bg-white/80 backdrop-blur-xl border border-white/50 shadow-2xl rounded-3xl overflow-hidden">
+                        <div className="p-8 md:p-10">
+                            <div className="text-center mb-10">
+                                <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-slate-50 text-emerald-600 mb-4 shadow-sm border border-slate-100">
+                                    <User size={24} />
+                                </div>
+                                <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Welcome Back</h2>
+                                <p className="text-slate-500 mt-2 text-sm">Enter your credentials to access the admin dashboard.</p>
+                            </div>
+
+                            <form onSubmit={handleLogin} className="space-y-5">
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Username</label>
+                                    <div className="relative group">
+                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                            <User className="h-5 w-5 text-slate-400 group-focus-within:text-sky-500 transition-colors" />
+                                        </div>
+                                        <input
+                                            type="text"
+                                            className="block w-full pl-11 pr-4 py-3.5 bg-slate-50 border border-slate-200 text-slate-900 rounded-xl focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 focus:bg-white transition-all outline-none font-medium"
+                                            placeholder="admin_user"
+                                            value={username}
+                                            onChange={(e) => setUsername(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">Password</label>
+                                    <div className="relative group">
+                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                            <Lock className="h-5 w-5 text-slate-400 group-focus-within:text-sky-500 transition-colors" />
+                                        </div>
+                                        <input
+                                            type="password"
+                                            className="block w-full pl-11 pr-4 py-3.5 bg-slate-50 border border-slate-200 text-slate-900 rounded-xl focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 focus:bg-white transition-all outline-none font-medium"
+                                            placeholder="••••••••"
+                                            value={password}
+                                            onChange={(e) => setPassword(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+
+                                <AnimatePresence mode='wait'>
+                                    {error && (
+                                        <motion.div 
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            className="flex items-center gap-3 p-3 rounded-lg bg-red-50 border border-red-100 text-red-600 text-sm font-medium"
+                                        >
+                                            <AlertCircle size={18} className="shrink-0" />
+                                            {error}
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+
+                                <button
+                                    type="submit"
+                                    disabled={isLoading}
+                                    className="w-full flex items-center justify-center gap-2 py-4 px-6 rounded-xl bg-slate-900 text-white font-bold text-lg shadow-lg shadow-slate-900/20 hover:bg-slate-800 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-70 disabled:cursor-not-allowed mt-4"
+                                >
+                                    {isLoading ? (
+                                        <>
+                                            <Loader2 className="animate-spin" size={20} />
+                                            Authenticating...
+                                        </>
+                                    ) : (
+                                        <>
+                                            Sign In <ArrowRight size={20} />
+                                        </>
+                                    )}
+                                </button>
+                            </form>
+                        </div>
+                        
+                        {/* Footer of Card */}
+                        <div className="bg-slate-50 px-8 py-4 border-t border-slate-100 text-center">
+                            <p className="text-xs text-slate-400">
+                                Protected by enterprise-grade security. 
+                                <span className="block mt-1">© Project Eklavya Systems</span>
+                            </p>
+                        </div>
+                    </div>
+                </motion.div>
             </div>
-          )}
-          {error && (
-            <div className="flex items-center p-3 rounded-lg bg-red-100 text-red-700 font-medium text-sm">
-              {error}
-            </div>
-          )}
-          <button
-            type="submit"
-            className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-lg text-xl font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400 focus:ring-offset-white/50 transition-all duration-300"
-          >
-            Sign in
-          </button>
-        </form>
-      </div>
-    </div>
-  );
+        </div>
+    );
 };
 
 export default LoginPage;

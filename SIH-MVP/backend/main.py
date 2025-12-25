@@ -1,40 +1,49 @@
 import os
-from flask import Flask, jsonify, request, render_template
-from flask_cors import CORS
-import pandas as pd
-import numpy as np
 import sqlite3
 import io
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from werkzeug.security import generate_password_hash, check_password_hash
+import numpy as np
+import pandas as pd
 import joblib
+from flask import Flask, jsonify, request, render_template
+from flask_cors import CORS
+from werkzeug.security import generate_password_hash, check_password_hash
 
-# Set up Flask
+# AI/ML Imports
+from xgboost import XGBClassifier
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder
+
+# -------------------- App Setup --------------------
 app = Flask(
     __name__,
     template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 )
-# Allow all origins (fix for frontend fetch issues)
 CORS(app)
 
-# Historical data (used only if DB is empty)
+# -------------------- Configuration --------------------
+MODEL_FILE = 'risk_model.joblib'
+SCALER_FILE = 'scaler.joblib'
+ENCODER_FILE = 'encoder.joblib'
+LABEL_ENCODER_FILE = 'label_encoder.joblib'
+
+# Global variables to hold the loaded model in memory
+MODEL = None
+SCALER = None
+ENCODER = None
+LABEL_ENCODER = None
+FEATURES = None
+
+# -------------------- Historical Data (The "Truth") --------------------
+# This data is used for training if the database is empty.
+# notice 'risk_label' is hardcoded here - the AI will learn these patterns.
 historical_data = {
     'student_id': ['101', '102', '103', '104', '105', '106', '107', '108', '109', '110'],
     'attendance_percentage': [82, 65, 90, 72, 55, 95, 68, 85, 78, 62],
     'avg_test_score': [81.5, 37.5, 90.0, 50.0, 32.0, 88.0, 55.0, 75.0, 60.0, 45.0],
     'fee_status': ['Paid', 'Overdue', 'Paid', 'Overdue', 'Overdue', 'Paid', 'Overdue', 'Paid', 'Paid', 'Overdue'],
+    # The AI learns from THIS column:
     'risk_label': ['Low', 'High', 'Low', 'Medium', 'High', 'Low', 'High', 'Low', 'Medium', 'High']
 }
 historical_df = pd.DataFrame(historical_data)
-
-MODEL_FILE = 'risk_model.joblib'
-SCALER_FILE = 'scaler.joblib'
-ENCODER_FILE = 'encoder.joblib'
-MODEL = None
-SCALER = None
-ENCODER = None
-FEATURES = None
 
 # -------------------- Database Helper --------------------
 def get_data_from_db():
@@ -60,108 +69,130 @@ def get_data_from_db():
         if conn:
             conn.close()
 
-# -------------------- AI Model --------------------
-from xgboost import XGBClassifier
-import joblib
-import numpy as np
-import pandas as pd
-import os
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+# -------------------- AI Logic --------------------
 
-# -------------------- AI Model --------------------
 def train_model_once():
-    global MODEL, SCALER, ENCODER, FEATURES
+    """
+    Trains the XGBoost model. 
+    Fix: Falls back to historical_data if DB data exists but has no labels.
+    """
+    global MODEL, SCALER, ENCODER, LABEL_ENCODER, FEATURES
 
-    if os.path.exists(MODEL_FILE) and os.path.exists(SCALER_FILE) and os.path.exists(ENCODER_FILE):
+    # 1. Load existing model if available
+    if (os.path.exists(MODEL_FILE) and os.path.exists(SCALER_FILE) and 
+        os.path.exists(ENCODER_FILE) and os.path.exists(LABEL_ENCODER_FILE)):
         MODEL = joblib.load(MODEL_FILE)
         SCALER = joblib.load(SCALER_FILE)
         ENCODER = joblib.load(ENCODER_FILE)
+        LABEL_ENCODER = joblib.load(LABEL_ENCODER_FILE)
         FEATURES = ['attendance_percentage', 'avg_test_score'] + ENCODER.get_feature_names_out(['fee_status']).tolist()
-        print("✅ AI model loaded successfully (XGBoost).")
+        print("✅ AI model loaded successfully.")
         return
 
-    print("⚠️ Training a new AI model (XGBoost)...")
+    print("⚠️ Training a new AI model (XGBoost) from Data Patterns...")
+    
+    # 2. Get Training Data
     train_df, _, _ = get_data_from_db()
-
+    
+    # --- FIX STARTS HERE ---
+    # Check if we should fallback to historical data
+    use_historical = False
+    
     if train_df.empty:
+        print("   > Database is empty.")
+        use_historical = True
+    elif 'risk_label' not in train_df.columns:
+        print("   > Database data found, but it lacks 'risk_label' (ground truth).")
+        use_historical = True
+        
+    if use_historical:
+        print("   > Using built-in historical dataset for training (Golden Data).")
         train_df = historical_df.copy()
+    # --- FIX ENDS HERE ---
 
-    # Create labels if missing
+    # 3. Final Safety Check
     if 'risk_label' not in train_df.columns:
-        def get_label(row):
-            if row['attendance_percentage'] < 70 and row['avg_test_score'] < 50:
-                return 'High'
-            elif row['attendance_percentage'] < 80 or row['avg_test_score'] < 60 or row['fee_status'] == 'Overdue':
-                return 'Medium'
-            else:
-                return 'Low'
-        train_df['risk_label'] = train_df.apply(get_label, axis=1)
+        print("❌ Critical Error: Even historical data is missing 'risk_label'. Cannot train.")
+        return
 
-    # Encode categorical
+    # 4. Prepare X (Features)
     ENCODER = OneHotEncoder(handle_unknown='ignore')
     train_encoded = pd.DataFrame(
         ENCODER.fit_transform(train_df[['fee_status']]).toarray(),
         columns=ENCODER.get_feature_names_out(['fee_status'])
     )
-
+    
     train_df_processed = pd.concat([train_df.drop('fee_status', axis=1), train_encoded], axis=1)
-
     FEATURES = ['attendance_percentage', 'avg_test_score'] + ENCODER.get_feature_names_out(['fee_status']).tolist()
     X_train = train_df_processed[FEATURES]
-    y_train = train_df_processed['risk_label']
 
-    # Scale numerical features
+    # Scale X
     SCALER = StandardScaler()
     X_train_scaled = SCALER.fit_transform(X_train)
 
-    # 🔹 Train XGBoost Classifier
+    # 5. Prepare y (Target)
+    LABEL_ENCODER = LabelEncoder()
+    y_train = LABEL_ENCODER.fit_transform(train_df['risk_label'])
+
+    # 6. Train XGBoost
     MODEL = XGBClassifier(
         n_estimators=200,
         learning_rate=0.1,
         max_depth=5,
         random_state=42,
-        use_label_encoder=False,
         eval_metric="mlogloss"
     )
     MODEL.fit(X_train_scaled, y_train)
 
-    # Save trained components
+    # 7. Save Artifacts
     joblib.dump(MODEL, MODEL_FILE)
     joblib.dump(SCALER, SCALER_FILE)
     joblib.dump(ENCODER, ENCODER_FILE)
-    print("✅ XGBoost AI model trained and saved.")
-
+    joblib.dump(LABEL_ENCODER, LABEL_ENCODER_FILE)
+    print("✅ AI model trained on historical patterns and saved.")
 
 def predict_risk(current_df):
-    if MODEL is None or SCALER is None or ENCODER is None:
+    """
+    Uses the trained model to predict risk for new students.
+    """
+    if MODEL is None or SCALER is None or ENCODER is None or LABEL_ENCODER is None:
         return current_df, "AI model not loaded. Restart server."
 
+    # 1. Preprocess the incoming data exactly like training data
     current_encoded = pd.DataFrame(
         ENCODER.transform(current_df[['fee_status']]).toarray(),
         columns=ENCODER.get_feature_names_out(['fee_status'])
     )
-
     current_df_processed = pd.concat([current_df.drop('fee_status', axis=1), current_encoded], axis=1)
-    
     X_predict = current_df_processed[FEATURES]
     X_predict_scaled = SCALER.transform(X_predict)
 
-    predictions = MODEL.predict_proba(X_predict_scaled)
+    # 2. Make Predictions
+    # Get numeric predictions (e.g., [0, 2, 1])
+    numeric_predictions = MODEL.predict(X_predict_scaled)
+    # Convert numbers back to text (e.g., ['High', 'Low', 'Medium'])
+    text_predictions = LABEL_ENCODER.inverse_transform(numeric_predictions)
+    
+    current_df['risk_level'] = text_predictions
 
-    class_order = ['High', 'Medium', 'Low']
-    class_map = {cls: predictions[:, np.where(MODEL.classes_ == cls)[0][0]]
-                 for cls in class_order if cls in MODEL.classes_}
-
-    current_df['high_risk_prob'] = class_map.get('High', np.zeros(len(current_df)))
-    current_df['risk_level'] = MODEL.predict(X_predict_scaled)
+    # 3. Get Probabilities (Confidence)
+    probs = MODEL.predict_proba(X_predict_scaled)
+    
+    # Find which index corresponds to 'High' risk in the encoder
+    try:
+        high_risk_index = list(LABEL_ENCODER.classes_).index('High')
+        current_df['high_risk_prob'] = probs[:, high_risk_index]
+    except ValueError:
+        # If 'High' wasn't in training data, default to 0
+        current_df['high_risk_prob'] = 0.0
 
     return current_df, None
-
 
 def get_counseling_insights(student_data, model, features):
     reasons = []
     advice = "No specific advice. The student's data looks good."
 
+    # Simple logic for text feedback (separate from the AI risk prediction)
     if student_data['attendance_percentage'] < 75:
         reasons.append(f"Low attendance ({student_data['attendance_percentage']}%).")
         advice = "Encourage regular class attendance. "
@@ -170,13 +201,14 @@ def get_counseling_insights(student_data, model, features):
         reasons.append(f"Low average test score ({student_data['avg_test_score']}).")
         advice += "Suggest tutoring or extra practice. "
 
-    if student_data['fee_status'].lower() == 'overdue':
+    if str(student_data['fee_status']).lower() == 'overdue':
         reasons.append("Overdue fee status.")
         advice += "Consider financial counseling."
 
     return reasons, advice
 
 # -------------------- Routes --------------------
+
 @app.route('/')
 def home():
     return render_template('dashboard.html')
@@ -227,13 +259,12 @@ def get_students():
     merged_df, _, error = get_data_from_db()
 
     if error:
-       
         return jsonify({"message": error}), 500
     if merged_df.empty:
         return jsonify({"message": "No data found."}), 404
 
     final_df, model_error = predict_risk(merged_df)
-   
+    
     if model_error:
         return jsonify({"message": model_error}), 500
 
@@ -279,6 +310,8 @@ def get_subject_scores():
         conn = sqlite3.connect('students.db')
         test_scores_df = pd.read_sql_query("SELECT subject, test_score FROM test_scores", conn)
         conn.close()
+        if test_scores_df.empty:
+             return jsonify([])
         avg_scores_by_subject = test_scores_df.groupby('subject')['test_score'].mean().reset_index()
         return jsonify(avg_scores_by_subject.to_dict(orient="records"))
     except Exception as e:
@@ -307,9 +340,14 @@ def upload_data():
             return jsonify({"message": "Missing required columns"}), 400
 
         new_students_df = df[~df['student_id'].isin(existing_ids)]
+        
+        # NOTE: Uploading implies adding new data. 
+        # For the AI to learn from THIS new data, you must add a 'risk_label' column to your CSV 
+        # and trigger a retrain (delete .joblib files and restart).
+        
         if new_students_df.empty:
             conn.close()
-            return jsonify({"message": "No new student data to upload."}), 200
+            return jsonify({"message": "No new student IDs found to upload."}), 200
 
         students_to_add = new_students_df[['student_id', 'attendance_percentage', 'fee_status']]
         test_scores_to_add = new_students_df[['student_id', 'subject', 'test_score', 'test_number']]
@@ -347,7 +385,6 @@ def get_users():
         return jsonify(users_df.to_dict(orient="records"))
     except Exception as e:
         return jsonify({"message": f"Error fetching users: {e}"}), 500
-    
 
 @app.route("/api/student/delete/<student_id>", methods=["DELETE"])
 def delete_student(student_id):
@@ -356,30 +393,21 @@ def delete_student(student_id):
         conn = sqlite3.connect('students.db')
         cursor = conn.cursor()
         
-        # Start a transaction
         conn.execute("BEGIN TRANSACTION")
-        
-        # Delete from the test_scores table first
         cursor.execute("DELETE FROM test_scores WHERE student_id = ?", (student_id,))
-        
-        # Then delete from the students table
         cursor.execute("DELETE FROM students WHERE student_id = ?", (student_id,))
         
-        # Check if any student was deleted
         if cursor.rowcount == 0:
             conn.execute("ROLLBACK")
             return jsonify({'message': f'Student {student_id} not found.'}), 404
         
         conn.execute("COMMIT")
         return jsonify({'message': f'Student {student_id} and their records deleted successfully.'}), 200
-        
     except Exception as e:
-        conn.execute("ROLLBACK") # Rollback on error
+        if conn: conn.execute("ROLLBACK")
         return jsonify({'message': f'Error deleting student: {e}'}), 500
     finally:
-        if conn:
-            conn.close()
-            
+        if conn: conn.close()
 
 @app.route("/api/student/update", methods=["POST"])
 def update_student():
@@ -407,15 +435,11 @@ def update_student():
             return jsonify({'message': f'Student {student_id} not found.'}), 404
         
         return jsonify({'message': f'Student {student_id} updated successfully.'}), 200
-        
     except Exception as e:
         return jsonify({'message': f'Error updating student: {e}'}), 500
     finally:
-        if conn:
-            conn.close()
-            
-            
-# Student-only login endpoint
+        if conn: conn.close()
+
 @app.route("/api/student-login", methods=['POST'])
 def student_login():
     data = request.json
@@ -435,8 +459,6 @@ def student_login():
         return jsonify({'message': 'Login successful', 'role': 'student', 'username': username}), 200
     return jsonify({'message': 'Invalid credentials or not a student account.'}), 401
 
-
-# Delete a user by username
 @app.route("/api/user/delete/<username>", methods=["DELETE"])
 def delete_user(username):
     conn = None
@@ -451,10 +473,8 @@ def delete_user(username):
     except Exception as e:
         return jsonify({'message': f'Error deleting user: {e}'}), 500
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
 
-# Update a user's role (only allow 'admin' or 'student')
 @app.route("/api/user/update", methods=["POST"])
 def update_user():
     data = request.json
@@ -476,14 +496,10 @@ def update_user():
     except Exception as e:
         return jsonify({'message': f'Error updating user: {e}'}), 500
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
 
-
-# Get current student info (for dashboard)
 @app.route("/api/student/me", methods=["GET"])
 def get_student_me():
-    # For demo: get username from query param (frontend should send ?username=...)
     username = request.args.get('username')
     if not username:
         return jsonify({"message": "Username required as query param."}), 400
@@ -502,10 +518,8 @@ def get_student_me():
     reasons, advice = get_counseling_insights(student_info, MODEL, FEATURES)
     student_info['reasons'] = reasons
     student_info['advice'] = advice
-    # Get test scores for this student
     student_scores = test_scores_df[test_scores_df['student_id'] == username].to_dict(orient="records")
     return jsonify({"info": student_info, "scores": student_scores})
-
 
 # -------------------- Run --------------------
 if __name__ == "__main__":

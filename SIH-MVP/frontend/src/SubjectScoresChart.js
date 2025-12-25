@@ -24,7 +24,12 @@ const SubjectScoresChart = () => {
                 const data = await response.json();
 
                 // Map the data from the API response
-                const labels = data.map(item => item.subject);
+                // TRICK: Split long names into arrays to make them stack vertically instead of slanting
+                const labels = data.map(item => {
+                    const name = item.subject;
+                    return name.length > 15 ? name.split(' ') : name;
+                });
+                
                 const scores = data.map(item => item.test_score);
 
                 const themeColors = [
@@ -49,7 +54,7 @@ const SubjectScoresChart = () => {
                 });
             } catch (error) {
                 console.error("Failed to fetch subject scores:", error);
-                setChartData(null); // Set to null on error to show error message
+                setChartData(null); 
             } finally {
                 setIsLoading(false);
             }
@@ -81,7 +86,13 @@ const SubjectScoresChart = () => {
             },
             x: {
                 grid: { display: false },
-                ticks: { color: '#374151', autoSkip: false, maxRotation: 45, minRotation: 0 }
+                ticks: { 
+                    color: '#374151', 
+                    autoSkip: false, 
+                    // FIX: Force labels to be horizontal
+                    maxRotation: 0, 
+                    minRotation: 0 
+                }
             }
         }
     };
