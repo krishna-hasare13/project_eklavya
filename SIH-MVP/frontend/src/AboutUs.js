@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom'; // Import useNavigate
 import { motion } from 'framer-motion';
 import { 
     Award, 
@@ -7,7 +8,8 @@ import {
     ShieldAlert, 
     Users, 
     TrendingUp, 
-    Database 
+    Database,
+    ArrowLeft // Import ArrowLeft icon
 } from 'lucide-react';
 import Navbar from './Navbar';
 import Footer from './Footer';
@@ -60,11 +62,30 @@ const StatBadge = ({ number, label }) => (
 );
 
 const AboutUs = () => {
+    const navigate = useNavigate(); // Hook for navigation
+
     return (
-        <div className="min-h-screen bg-[#F8FAFC] font-sans overflow-x-hidden selection:bg-emerald-100 selection:text-emerald-900">
+        <div className="min-h-screen bg-[#F8FAFC] font-sans overflow-x-hidden selection:bg-emerald-100 selection:text-emerald-900 relative">
             <Navbar />
             <BackgroundBlobs />
             
+            {/* --- Modern Compact Back Button --- */}
+            <motion.button
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                whileHover={{ scale: 1.05, x: -3 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => navigate('/')}
+                className="fixed top-24 left-6 z-50 group flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur-xl border border-white/60 rounded-full shadow-[0_4px_20px_rgb(0,0,0,0.05)] hover:shadow-lg hover:bg-white transition-all duration-300 cursor-pointer"
+            >
+                <div className="p-1 bg-slate-100 rounded-full text-slate-600 group-hover:bg-sky-50 group-hover:text-sky-600 transition-colors duration-300">
+                    <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2.5} />
+                </div>
+                <span className="font-bold text-xs text-slate-600 group-hover:text-sky-600 tracking-wide pr-1 transition-colors duration-300 uppercase">
+                    Back
+                </span>
+            </motion.button>
+
             <main className="relative z-10 pt-28 pb-20 px-4">
                 <div className="max-w-6xl mx-auto">
                     

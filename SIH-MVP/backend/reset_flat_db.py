@@ -14,13 +14,15 @@ def reset_database_clean():
     cursor.execute("DROP TABLE IF EXISTS test_scores")
     cursor.execute("DROP TABLE IF EXISTS users") 
 
-    # 2. Re-create users table
+    # 2. Re-create users table WITH 'mobile_number'
+    # --- CRITICAL FIX HERE ---
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
-            role TEXT NOT NULL
+            role TEXT NOT NULL,
+            mobile_number TEXT  -- <--- Added this column
         )
     """)
 
@@ -43,8 +45,6 @@ def reset_database_clean():
     """)
 
     # --- CONFIGURATION: Define Profiles Data-Driven ---
-    # We create a list of 60 configs: 20 Low, 20 Medium, 20 High
-    
     profiles = []
 
     # 1. Add 20 'Low Risk' (Good) Profiles
@@ -131,7 +131,7 @@ def reset_database_clean():
 
     conn.commit()
     conn.close()
-    print("✅ Database reset complete. 20 Low, 20 Medium, 20 High risk students created.")
+    print("✅ Database reset complete. Users table now has 'mobile_number'.")
 
 if __name__ == "__main__":
     reset_database_clean()
